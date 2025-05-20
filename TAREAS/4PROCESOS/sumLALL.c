@@ -5,8 +5,9 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <time.h>
+#include <sys/time.h>  // Para gettimeofday()
 
-#define TERMS (4e9)  // 4 billones de términos para la serie
+#define TERMS (4e9)  // 4 mil millones de términos para la serie
 #define NUM_PROCESSES 4  // Número de procesos a utilizar
 
 // Estructura para definir rangos de trabajo
@@ -43,16 +44,22 @@ double leibniz_sequential() {
 
 // Versión paralela usando pipes (tuberías)
 void leibniz_pipes() {
+    struct timeval start, end;
+    gettimeofday(&start, NULL);  // Inicio del tiempo total
+
     int fd[NUM_PROCESSES][2];  // Descriptores de archivo para los pipes
     pid_t pids[NUM_PROCESSES]; // IDs de los procesos hijos
     Range ranges[NUM_PROCESSES]; // Rangos para cada proceso
-    
+    int resultPipe = 0;
     // Divide el trabajo entre los procesos
     long long terms_per_process = TERMS / NUM_PROCESSES;
     
     // Configura los pipes y los rangos
     for (int i = 0; i < NUM_PROCESSES; i++) {
-        if (pipe(fd[i]) == -1) {  // Crea un pipe
+
+        resultPipe  = pipe(fd[i]); // Creamos un pipe
+
+        if ( resultPipe == -1) {
             perror("pipe");
             exit(EXIT_FAILURE);
         }
@@ -64,7 +71,7 @@ void leibniz_pipes() {
     
     // Crea los procesos hijos
     for (int i = 0; i < NUM_PROCESSES; i++) {
-        pids[i] = fork();  // Divide el proceso
+        pids[i] = fork();  // creamos un proceso
         
         if (pids[i] < 0) {
             perror("Error al crear un proceso hijo (fork)");
@@ -99,11 +106,18 @@ void leibniz_pipes() {
         waitpid(pids[i], NULL, 0);
     }
     
+    gettimeofday(&end, NULL);  // Fin del tiempo total
+    double time_spent = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
+
     printf("Pi con pipes o tuberias: %.15f\n", 4 * total);
+    printf("Tiempo = %.3f segundos\n", time_spent);
 }
 
 // Versión paralela usando memoria compartida
 void leibniz_shared_memory() {
+
+    struct timeval start, end;
+    gettimeofday(&start, NULL);  // Inicio del tiempo total
     int shmid;  // ID del segmento de memoria compartida
     double *shared_sum;  // Puntero a la memoria compartida
     
@@ -158,7 +172,14 @@ void leibniz_shared_memory() {
         total += shared_sum[i];
     }
     
+    gettimeofday(&end, NULL);  // Fin del tiempo total
+    double time_spent = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
+
     printf("Pi con memoria compartida: %.15f\n", 4 * total);
+    printf("Tiempo = %.3f segundos\n", time_spent);
+
+
+
     
     // Limpieza
     shmdt(shared_sum);  // Desvincula
@@ -169,7 +190,7 @@ int main() {
     clock_t start, end;
     double time_spent;
     
-    printf("Calculando pi con 4 billones de terminos...\n");
+    printf("Calculando pi con 4 mil millones de terminos...\n");
     printf("Ticks por segundo: %ld\n", CLOCKS_PER_SEC);
     printf("--------------------------------------------\n");
     // Versión secuencial
@@ -180,20 +201,12 @@ int main() {
     printf("Secuencial: Pi = %.15f, Tiempo = %.3f segundos\n", pi_seq, time_spent);
     
     printf("--------------------------------------------\n");
-    // Versión con pipes
-    start = clock();
+
     leibniz_pipes();
-    end = clock();
-    time_spent = (double)(end - start) / CLOCKS_PER_SEC;
-    printf("Tiempo = %.3f segundos\n", time_spent);
-    
+
     printf("--------------------------------------------\n");
-    // Versión con memoria compartida
-    start = clock();
+
     leibniz_shared_memory();
-    end = clock();
-    time_spent = (double)(end - start) / CLOCKS_PER_SEC;
-    printf("Tiempo = %.3f segundos\n", time_spent);
-    
+
     return 0;
 }

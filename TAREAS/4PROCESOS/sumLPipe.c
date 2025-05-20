@@ -2,75 +2,218 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <time.h>
+#include <sys/time.h>  // Para gettimeofday()
 
-#define PROCESOS 4
-#define ITERACIONES 4000000000LL  // 4e9
+#define TERMS (4e9)  // 4 mil millones de términos para la serie
+#define NUM_PROCESSES 4  // Número de procesos a utilizar
+
+// Estructura para definir rangos de trabajo
+typedef struct {
+    long long start;  // Índice inicial
+    long long end;    // Índice final (no inclusive)
+} Range;
+
+// Función que calcula una parte de la serie de Leibniz
+double partial_leibniz(Range range) {
+    double sum = 0.0;
+    for (long long i = range.start; i < range.end; i++) {
+        if (i % 2 == 0) {
+            sum += 1.0 / (2 * i + 1);  // Términos pares: suma
+        } else {
+            sum -= 1.0 / (2 * i + 1);  // Términos impares: resta
+        }
+    }
+    return sum;
+}
+
+// Versión secuencial del cálculo de π
+double leibniz_sequential() {
+    double sum = 0.0;
+    for (long long i = 0; i < TERMS; i++) {
+        if (i % 2 == 0) {
+            sum += 1.0 / (2 * i + 1);
+        } else {
+            sum -= 1.0 / (2 * i + 1);
+        }
+    }
+    return 4 * sum;  // Multiplica por 4 para obtener π
+}
+
+// Versión paralela usando pipes (tuberías)
+void leibniz_pipes() {
+    struct timeval start, end;
+    gettimeofday(&start, NULL);  // Inicio del tiempo total
+
+    int fd[NUM_PROCESSES][2];  // Descriptores de archivo para los pipes
+    pid_t pids[NUM_PROCESSES]; // IDs de los procesos hijos
+    Range ranges[NUM_PROCESSES]; // Rangos para cada proceso
+    int resultPipe = 0;
+    // Divide el trabajo entre los procesos
+    long long terms_per_process = TERMS / NUM_PROCESSES;
+    
+    // Configura los pipes y los rangos
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+
+        resultPipe  = pipe(fd[i]); // Creamos un pipe
+
+        if ( resultPipe == -1) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+        
+        // Asigna el rango de trabajo para este proceso
+        ranges[i].start = i * terms_per_process;
+        ranges[i].end = (i == NUM_PROCESSES - 1) ? TERMS : (i + 1) * terms_per_process;
+    }
+    
+    // Crea los procesos hijos
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        pids[i] = fork();  // Divide el proceso
+        
+        if (pids[i] < 0) {
+            perror("Error al crear un proceso hijo (fork)");
+            exit(EXIT_FAILURE);
+        }
+        
+        if (pids[i] == 0) {  // Código del proceso hijo
+            close(fd[i][0]);  // Cierra el extremo de lectura del pipe
+            
+            // Calcula su parte de la serie
+            double partial_sum = partial_leibniz(ranges[i]);
+            // Envía el resultado al padre
+            write(fd[i][1], &partial_sum, sizeof(partial_sum));
+            close(fd[i][1]);
+            
+            exit(EXIT_SUCCESS);  // Termina el hijo
+        } else {  // Código del proceso padre
+            close(fd[i][1]);  // Cierra el extremo de escritura
+        }
+    }
+    
+    // Proceso padre recolecta los resultados
+    double total = 0.0;
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        double partial_sum;
+        // Lee el resultado de cada hijo
+        read(fd[i][0], &partial_sum, sizeof(partial_sum));
+        total += partial_sum;
+        close(fd[i][0]);
+        
+        // Espera a que el hijo termine
+        waitpid(pids[i], NULL, 0);
+    }
+    
+    gettimeofday(&end, NULL);  // Fin del tiempo total
+    double time_spent = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
+
+    printf("Pi con pipes o tuberias: %.15f\n", 4 * total);
+    printf("Tiempo = %.3f segundos\n", time_spent);
+}
+
+// Versión paralela usando memoria compartida
+void leibniz_shared_memory() {
+    struct timeval start, end;
+    gettimeofday(&start, NULL);  // Inicio del tiempo total
+    int shmid;  // ID del segmento de memoria compartida
+    double *shared_sum;  // Puntero a la memoria compartida
+    
+    // Crea un segmento de memoria compartida
+    shmid = shmget(IPC_PRIVATE, NUM_PROCESSES * sizeof(double), IPC_CREAT | 0666);
+    if (shmid < 0) {
+        perror("shmget no puedo crear un segmento de memoria ");
+        exit(EXIT_FAILURE); 
+    }
+    
+    // Adjunta el segmento al espacio de direcciones del proceso
+    shared_sum = (double *)shmat(shmid, NULL, 0);//casteo explicito a double *
+    if (shared_sum == NULL) {
+        perror("shmat fallo");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Configura los rangos de trabajo
+    Range ranges[NUM_PROCESSES];
+    long long terms_per_process = TERMS / NUM_PROCESSES;
+    
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        ranges[i].start = i * terms_per_process;
+        ranges[i].end = (i == NUM_PROCESSES - 1) ? TERMS : (i + 1) * terms_per_process;
+    }
+    
+    // Crea los procesos hijos
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        pid_t pid = fork();
+        
+        if (pid < 0) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        }
+        
+        if (pid == 0) {  // Código del hijo
+            // Calcula su parte y guarda en memoria compartida
+            shared_sum[i] = partial_leibniz(ranges[i]); //*(shared_sum + i), suma en este caso 8 bytes cada iteracion
+            shmdt(shared_sum);  // Desvincula la memoria compartida
+            exit(EXIT_SUCCESS);  // Termina
+        }
+    }
+    
+    // Espera a que todos los hijos terminen
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        wait(NULL);
+    }
+    
+    // Suma todos los resultados parciales
+    double total = 0.0;
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        total += shared_sum[i];
+    }
+    
+    gettimeofday(&end, NULL);  // Fin del tiempo total
+    double time_spent = (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec) / 1e6;
+
+    printf("Pi con memoria compartida: %.15f\n", 4 * total);
+    printf("Tiempo = %.3f segundos\n", time_spent);
+
+
+
+    
+    // Limpieza
+    shmdt(shared_sum);  // Desvincula
+    shmctl(shmid, IPC_RMID, NULL);  // Elimina el segmento
+}
 
 int main() {
-    int pipes[PROCESOS][2];
-    pid_t pids[PROCESOS];
-    long long int iteraciones = ITERACIONES;
-    double resultado_total = 0.0;
-    struct timeval start, end;
-    gettimeofday(&start, NULL);
-
-    clock_t inicio = clock();
-
-    for (int i = 0; i < PROCESOS; i++) {
-        if (pipe(pipes[i]) < 0) {
-            perror("error al crear la tuberia");
-            exit(1);
-        }
-
-        pids[i] = fork();
-
-        if (pids[i] < 0) {
-            perror("error al crear un proceso hijo");
-            exit(1);
-        }
-
-        if (pids[i] == 0) {
-            // Código del hijo
-            close(pipes[i][0]); // Cerramos lectura
-
-            long long int start = i * (iteraciones / PROCESOS);
-            long long int end = (i + 1) * (iteraciones / PROCESOS);
-            double suma = 0.0;
-
-            for (long long int j = start; j < end; j++) {
-                double term = (j % 2 == 0 ? 1.0 : -1.0) / (2 * j + 1);
-                suma += term;
-            }
-
-            // Enviar resultado al padre
-            write(pipes[i][1], &suma, sizeof(double));
-            close(pipes[i][1]); // Cerramos escritura
-            exit(0); // Hijo termina
-        }
-
-        // El padre no usa la escritura de la tubería
-        close(pipes[i][1]);
-    }
-
-    // Esperar a los hijos y leer resultados
-    for (int i = 0; i < PROCESOS; i++) {
-        //waitpid(pids[i], NULL, 0);
-
-        double parcial = 0.0;
-        read(pipes[i][0], &parcial, sizeof(double));
-        resultado_total += parcial;
-
-        close(pipes[i][0]);
-    }
-
-    resultado_total *= 4.0;
-
-    clock_t fin = clock();
-    double tiempo = (double)(fin - inicio) / CLOCKS_PER_SEC;
-
-    printf("Valor aproximado de PI: %.15f\n", resultado_total);
-    printf("Tiempo de ejecución (pipe): %.2f segundos\n", tiempo);
-
+    clock_t start, end;
+    double time_spent;
+    
+    printf("Calculando pi con 4 billones de terminos...\n");
+    printf("Ticks por segundo: %ld\n", CLOCKS_PER_SEC);
+    printf("--------------------------------------------\n");
+    // Versión secuencial
+    start = clock();
+    double pi_seq = leibniz_sequential();
+    end = clock();
+    time_spent = (double)(end - start) / CLOCKS_PER_SEC;
+    printf("Secuencial: Pi = %.15f, Tiempo = %.3f segundos\n", pi_seq, time_spent);
+    
+    printf("--------------------------------------------\n");
+    // Versión con pipes
+    //start = clock();
+    leibniz_pipes();
+    //end = clock();
+    //time_spent = (double)(end - start) / CLOCKS_PER_SEC;
+    //printf("Tiempo = %.3f segundos\n", time_spent);
+    
+    printf("--------------------------------------------\n");
+    // Versión con memoria compartida
+    //start = clock();
+    leibniz_shared_memory();
+    //end = clock();
+    //time_spent = (double)(end - start) / CLOCKS_PER_SEC;
+    //printf("Tiempo = %.3f segundos\n", time_spent);
+    
     return 0;
 }
