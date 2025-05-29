@@ -13,7 +13,7 @@
 // Estructura para definir rangos de trabajo
 typedef struct {
     long long start;  // Índice inicial
-    long long end;    // Índice final (no inclusive)
+    long long end;    // Índice final
 } Range;
 
 // Función que calcula una parte de la serie de Leibniz
@@ -102,7 +102,7 @@ void leibniz_pipes() {
         total += partial_sum;
         close(fd[i][0]);
         
-        // Espera a que el hijo termine
+        // Espera a que el hijo termine el trabajo y le autorizas su salida xd
         waitpid(pids[i], NULL, 0);
     }
     
@@ -118,6 +118,8 @@ void leibniz_shared_memory() {
 
     struct timeval start, end;
     gettimeofday(&start, NULL);  // Inicio del tiempo total
+
+
     int shmid;  // ID del segmento de memoria compartida
     double *shared_sum;  // Puntero a la memoria compartida
     
