@@ -1,0 +1,123 @@
+# Proyecto: Buscador de Autos por VIN y Marca
+
+Este sistema permite buscar información de vehículos a partir de un archivo CSV grande mediante dos criterios: VIN (Vehicle Identification Number) y marca (make), utilizando una implementación en C con comunicación entre procesos por FIFO.
+
+---
+
+## 📁 Estructura de Archivos
+
+* `p1-dataProgram.c`: proceso que indexa el dataset por VIN (usando tabla hash) y responde a consultas.
+* `interfaz.c`: proceso interactivo que permite al usuario buscar por VIN o marca.
+* `Makefile`: compila ambos programas.
+* `car_prices_final.csv`: archivo de datos limpio que contiene las columnas: `year, make, model, transmission, odometer, vin`.
+
+---
+
+## ✅ Requisitos cumplidos de la práctica
+
+### 1. **Búsqueda eficiente por VIN (clave primaria)**
+
+* Implementada mediante una **tabla hash** con **listas enlazadas** para colisiones.
+* Evita recorrer el archivo completo.
+* Búsqueda en <2 segundos.
+
+### 2. **Búsqueda por marca (make)**
+
+* Implementada con lectura secuencial.
+* Permite ver todos los autos por fabricante.
+
+### 3. **Procesos no emparentados**
+
+* `interfaz` y `buscador` son programas separados que se comunican por **FIFOs**.
+
+### 4. **Comunicación por FIFO (pipes nombrados)**
+
+* FIFO `/tmp/fifo_peticion` para enviar peticiones.
+* FIFO `/tmp/fifo_respuesta` para devolver resultados.
+
+### 5. **Menú interactivo de usuario**
+
+* Opcion 1: Buscar por VIN.
+* Opcion 2: Buscar por marca.
+* Opcion 3: Salir.
+
+### 6. **Control de errores y validaciones**
+
+* VIN limpiado y normalizado (mayúsculas, sin comillas o saltos de línea).
+* Se imprime `NA` si no se encuentra el valor.
+* Manejo de archivos nulos.
+
+### 7. **Uso de punteros y memoria dinámica**
+
+* Se usa `malloc()` para crear registros en la tabla hash.
+* `free()` es usado para liberar copias de líneas al leer.
+* Se usan punteros para manipular cadenas de texto y estructuras.
+
+### 8. **Restricción de memoria (<10 MB)**
+
+* Solo se guarda el VIN y offset en memoria (no toda la línea).
+* El archivo completo **nunca se carga a RAM**.
+
+### 9. **Archivo indexado**
+
+* Aunque no se genera un archivo binario externo, el programa **indexa en tiempo de ejecución** el VIN, cumpliendo el criterio de eficiencia.
+* Se podría extender fácilmente para guardar esta tabla hash a disco en binario.
+
+### 10. **Documentación clara del dataset**
+
+* Dataset reducido a 6 columnas clave: `year`, `make`, `model`, `transmission`, `odometer`, `vin`.
+* VINs y marcas normalizados.
+* Transmisión vacía sustituida por `automatic`.
+
+---
+
+## 🔧 Compilación
+
+```bash
+make
+```
+
+---
+
+## 🚀 Ejecución
+
+### En una terminal:
+
+```bash
+./buscador
+```
+
+### En otra terminal:
+
+```bash
+./interfaz
+```
+
+---
+
+## 🧹 Limpieza
+
+```bash
+make clean
+```
+
+Elimina binarios y las FIFOs creadas.
+
+---
+
+## 👨🏻‍💻 Autores
+
+* Adrián Yebid Rincón
+* Ingeniería de Sistemas y Computación
+* Universidad / Curso: Sistemas Operativos
+
+---
+
+## 📦 Entrega final
+
+* `p1-dataProgram.c`: contiene `main` y lógica de indexación + servidor.
+* `interfaz.c`: menú para el usuario.
+* `Makefile`: compila ambos programas.
+* `car_prices_final.csv`: dataset limpio.
+* `LEEME.txt` (este archivo).
+* Todo el contenido se entrega en carpeta: `rincon-adrian`. Se entrega en clase o plataforma indicada por el docente.
