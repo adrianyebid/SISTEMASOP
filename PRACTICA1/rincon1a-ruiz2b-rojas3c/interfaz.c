@@ -28,21 +28,15 @@ int main() {
         menu();
         fgets(opcion, sizeof(opcion), stdin);
 
-        if (opcion[0] == '3') {
-            printf("Saliendo...\n");
-            break;
-        }
-
-        if (opcion[0] != '1' && opcion[0] != '2') {
-            printf("Opción inválida.\n");
-            continue;
-        }
+        if (opcion[0] == '3') break;
+        if (opcion[0] != '1' && opcion[0] != '2') continue;
 
         if (opcion[0] == '1') {
             printf("Ingrese VIN: ");
             fgets(entrada, sizeof(entrada), stdin);
             entrada[strcspn(entrada, "\n")] = 0;
 
+            // Envía la consulta por VIN a la FIFO
             int fd = open(FIFO_PETICION, O_WRONLY);
             dprintf(fd, "vin %s\n", entrada);
             close(fd);
@@ -51,18 +45,18 @@ int main() {
             fgets(entrada, sizeof(entrada), stdin);
             entrada[strcspn(entrada, "\n")] = 0;
 
+            // Envía la consulta por marca a la FIFO
             int fd = open(FIFO_PETICION, O_WRONLY);
             dprintf(fd, "make %s\n", entrada);
             close(fd);
         }
 
+        // Lee y muestra la respuesta desde el servidor
         FILE* f = fopen(FIFO_RESPUESTA, "r");
-        if (!f) { perror("fopen respuesta"); exit(1); }
-        printf("\n🔎 Resultado:\n");
         char linea[512];
-        while (fgets(linea, sizeof(linea), f)) {
+        printf("\n🔎 Resultado:\n");
+        while (fgets(linea, sizeof(linea), f))
             printf("%s", linea);
-        }
         fclose(f);
     }
 
